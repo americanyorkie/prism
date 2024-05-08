@@ -1,8 +1,0 @@
-project = "<YOUR_PROJECT_NAME>"
-creds = "gcp_creds.json"
-superuser_id = "<SUPERUSER_ID>"
-superuser_description = "Superuser SA for IAM managment"
-rsync_id = "<RSYNC_SUPERUSER_ID>"
-rsync_description = "Rsync db dumps from MongoDB VM to storage bucket"
-role = "roles/storage.objectViewer"
-scope = "allUsers"
