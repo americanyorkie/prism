@@ -1,0 +1,62 @@
+#DB user creation
+db.createUser({user: "admin", pwd: "passw0rd1", roles: [{role: "root", db: "admin"}]})
+db.createUser({user: "p3x888", pwd: "passw0rd1", roles: [{role: "readWriteAnyDatabase", db: "admin" }]})
+db.createUser({user: "chappa-ai", pwd: "passw0rd1", roles: [{role: "read", db: "admin" }]})
+
+#Generate self-signed cert
+#Limiting key bits to only 4096 is unlikely to come up during interview, but if we're purposely relaxing security :p 
+openssl req -newkey rsa:4096 -new -x509 -days 365 -nodes -subj '/C=GB/ST=Greater London/L=London/O=Personal/OU=Personal/emailAddress=p3x888chappaai@gmail.com/CN=*.europe-west2-c.c.wiz-exercise.internal' -out mongodb-cert.crt -keyout mongodb-cert.key
+
+cat mongodb-cert.key mongodb-cert.crt > mongodb.pem; cp mongodb-cert.crt mongodb-ca.crt; sudo cp mongodb-cert.crt /etc/ssl/; sudo cp mongodb.pem /etc/ssl; sudo cp mongodb-ca.crt /etc/ssl/certs/
+
+mongosh --tls --host tf-mongodb-host0.europe-west2-c.c.wiz-exercise.internal  --tlsCertificateKeyFile /etc/ssl/mongodb.pem --tlsUseSystemCA --username admin
+
+#Get connection string
+wiz_exe> db.getMongo()
+mongodb://<credentials>@tf-mongodb-host0.europe-west2-c.c.wiz-exercise.internal:27017/?directConnection=true&tls=true&tlsCertificateKeyFile=%2Fetc%2Fssl%2Fmongodb.pem&appName=mongosh+2.2.4
+
+#FQDN: tf-mongodb-host0.europe-west2-c.c.wiz-exercise.internal
+
+#mongodump
+#generate cron job:
+sudo mkdir -p /opt/mongodump/config
+sudo mkdir -p /opt/mongodump/dr_backup
+sudo vi /opt/mongodump/config/secret.yaml
+sudo chown -R mongodb: /opt/mongodump/*
+
+#contents of secret.yaml:
+password: passw0rd1
+
+#N.B. Need to update the string, mongodump is complaining about the lack of SANs although this works fine in mongosh. Workaround is to use the switch tlsInsecure for now. StackOverflow discussion on resolving: https://stackoverflow.com/questions/71588335/mongodump-error-x509-cannot-validate-certificate-for-server-ip-because-it-do
+
+sudo mongodump --username admin mongodb://tf-mongodb-host0.europe-west2-c.c.wiz-exercise.internal:27017/?directConnection=true --config=/opt/mongodump/config/secret.yaml --archive=/opt/mongodump/dr_backup/$(date +"%Y-%m-%d_%H:%M:%S") --ssl --sslPEMKeyFile=/etc/ssl/mongodb.pem --tlsInsecure
+
+system-wide cron job:
+sudo vi /etc/cron.hourly/mongo_dr_backup
+
+sudo mongodump --username admin mongodb://tf-mongodb-host0.europe-west2-c.c.wiz-exercise.internal:27017/?directConnection=true --config=/opt/mongodump/config/secret.yaml --archive=/opt/mongodump/dr_backup/$(date +"%Y-%m-%d_%H:%M:%S") --ssl --sslPEMKeyFile=/etc/ssl/mongodb.pem --tlsInsecure
+
+
+#Env vars for connecting from container
+MONGODB_URI=mongodb://p3x888:passw0rd1@tf-mongodb-host0.europe-west2-c.c.wiz-exercise.internal:27017/?directConnection=true&tls=true&tlsCertificateKeyFile=%2Fetc%2Fssl%2Fmongodb.pem&appName=mongosh+2.2.4
+SECRET_KEY=secret123
+
+#Copy pem to image
+
+#Fix x509 subject alt name
+openssl req -newkey rsa:4096 -new -x509 -days 365 -nodes -subj '/C=GB/ST=Greater London/L=London/O=Personal/OU=Personal/emailAddress=p3x888chappaai@gmail.com/CN=*.europe-west2-c.c.wiz-exercise.internal' -out mongodb-cert.crt -keyout mongodb-cert.key -addext 'subjectAltName=DNS:tf-mongodb-host0.europe-west2-c.c.wiz-exercise.internal'
+cat mongodb-cert.key mongodb-cert.crt > mongodb.pem; cp mongodb-cert.crt mongodb-ca.crt; sudo cp mongodb-cert.crt /etc/ssl/; sudo cp mongodb.pem /etc/ssl; sudo cp mongodb-ca.crt /etc/ssl/certs/
+
+Although this solved the x509 alt name issue, and mongosh works without issue with the new certificate, the container is not able to connect to mongodb:
+prism-task-1
+server selection error: server selection timeout, current topology: { Type: Single, Servers: [{ Addr: tf-mongodb-host0.europe-west2-c.c.wiz-exercise.internal:27017, Type: Unknown, Last error: connection() error occurred during connection handshake: x509: certificate signed by unknown authority }, ] }
+
+Disabled TLS :(
+
+New connection string:
+MONGODB_URI=mongodb://p3x888:passw0rd1@tf-mongodb-host0.europe-west2-c.c.wiz-exercise.internal:27017/?directConnection=true&appName=mongosh+2.2.4
+SECRET_KEY=secret123
+
+Connect via mongosh:
+mongosh --host tf-mongodb-host0.europe-west2-c.c.wiz-exercise.internal --username admin
+

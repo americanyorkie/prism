@@ -1,0 +1,5 @@
+#!/bin/bash
+
+mongodump --username <USERNAME> mongodb://<HOSTNAME>:27017/?directConnection=true --config=/opt/mongodump/config/secret.yaml --archive=/opt/mongodump/dr_backup/$(date +"%Y-%m-%d_%H:%M:%S") --ssl --sslPEMKeyFile=/etc/ssl/mongodb.pem --tlsInsecure
+#rsync the newly created files only
+gcloud storage rsync /opt/mongodump/dr_backup/ gs://<BUCKET>

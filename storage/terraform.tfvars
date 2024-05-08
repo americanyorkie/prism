@@ -1,0 +1,7 @@
+creds = "gcp_creds.json"
+project = "<PROJECT_ID>"
+bucket_name = "<BUCKET_NAME>"
+location = "EUROPE-WEST2"
+class = "STANDARD"
+role = "roles/storage.objectViewer"
+scope = "allUsers"

@@ -1,0 +1,92 @@
+- Created new email address - p3x888chappaai@gmail.com
+- Signed up for GCP account with new email address - p3x888chappaai@gmail.com
+
+Storage tutorial
+- Created new project wiz-exercise
+- Open cloud shell
+- export GOOGLE_CLOUD_PROJECT=wiz-exercise
+- Create bucket.tf
+- cd
+- mkdir terraform
+- cd terraform
+- Create main.tf with contents of bucket.tf
+    - Issues with location and bucket name
+- Bucket successfully created and dummy file uploaded
+- Make bucket permissive, recommendation from doc/tutorial was google_storage_bucket_iam_member, however, to make the bucket 
+
+
+
+Created service account in GCP IAM - automation@wiz-exercise.iam.gserviceaccount.com
+- Installed TF locally
+- Installed gcloud locally
+Created key for service account - 
+ gcloud iam service-accounts keys create /downloads/compute-instance.json --iam-account automation@wiz-exercise.iam.gserviceaccount.com
+-  sudo ssh-keygen -t rsa -b 4096
+- Created cloud-config.yaml which adds ssh key and does a yum non-interactive update and installs curl
+- Created network, firewall and compute instance but unable to ssh
+- Debug via console and ssh key hadn’t been added
+- Further debugging indicates user-data = file("${path.module}/cloud-config.yaml") not being executed in metadata code block
+- Additional research located TLS provider, implemented this instead 
+- Replaced allow rule in firewall from 0.0.0.0/0 with my ip
+- Research indicates some OS’ do not have cloud-init installed, working around by adding a startup script that checks for this, installs if it’s not present and then reboots the vm
+- https://www.reddit.com/r/googlecloud/comments/100dq9b/is_there_no_cloudinit_support_on_gcp/
+    - Upon testing, terraform apply exits after the reboot. There were possible workarounds such as changing OS, continuing configuration with either another TF manifest or switching to Ansible to complete setup of mongodb. Opted for saving image from instance created with cloud-init installed only 
+- Image centos7-cloud-init created with the following installed/configured:
+    - cloud-init
+    - mongo-db repo file: /etc/yum.repos.d/mongodb-org-5.0.repo
+    - Pinned mongodb version by adding an exclusion to yum in /etc/yum.conf
+    - Configured ulimit settings for mongodb user to ensure enough entropy and avoid a fork bomb during the demo (don’t anticipate this is necessary but I haven’t done much with mongodb before) - For RHEL 7 based machines and considering the mongodb user doesn’t yet exist manually configured nofiles in /etc/security/limits.conf, it’s also necessary to increase the limit of nproc via /etc/security/limits.d/99-mongodb-nproc.conf
+    - Configured selinux in permissive mode to allow mongodb to read available memory, a more robust option would be to configure the cgroup policy (setenforce permissive)
+    - Installed mongodb rpms manually as yum repo not working
+    - DESCRIPTION:
+        * Base image centos-cloud/centos-7 - Installed/configured: - cloud-init - /etc/yum.repos.d/mongodb-org-5.0.repo - Pinned mongodb version to 5 by adding exclude to /etc/yum.conf - Configured nproc and nofiles ulimit in /etc/security/limits.conf and /etc/security/limits.d/99-mongodb-nproc.conf for mongod user - Setenforce permissive to allow mongodb to read available memory - Installed mongodb rpms manually as yum repo not working
+
+projects/wiz-exercise/global/machineImages/centos7-cloud-init
+Installing MongoDB:
+
+- In Terraform there is only a module for ECS task definitions or MongoDB Atlas which manages the version in use, will need to install the community edition via script
+- Chose mongoldb v5 for OS support
+- Considered using Teleport which offers a free trial and provides least privilege access through zero trust, crypto identity - but this is over-engineering for this exercise and born out of the limitation with RHEL-based OS’ not having cloud-init already installed
+- Install via rpm
+- Exclude mongoldb packages from auto-upgrading via yum by adding exclude directive to /etc/yum.conf: 
+    - exclude=mongodb-org,mongodb-org-database,mongodb-org-server,mongodb-mongosh,mongodb-org-mongos,mongodb-org-tools
+- Configure ulimit to 64000
+- MongoDB instructions for installing via yum didn’t work: https://www.mongodb.com/docs/v5.0/tutorial/install-mongodb-on-red-hat/#install-mongodb-community-edition
+- Installed rpms manually as half of the dependencies were not listed in the documentation and not able to resolve easily without yum
+
+With MongoDB running:
+- mongosh - opened shell
+- db.getMongo() - returns connection string:
+    - mongodb://127.0.0.1:27017/?directConnection=true&serverSelectionTimeoutMS=2000&appName=mongosh+2.2.4
+    - Why is it connecting to localhost?
+- https://www.loginradius.com/blog/engineering/self-hosted-mongo/
+- sudo -u mongod mongod -f /etc/mongod.conf
+- use admin
+- db.createUser({user: "admin", pwd: "password", roles: [{role: "root", db: "admin"}]})
+- db.createUser({user: "normal_user", pwd: "password", roles: [{role: "readWriteAnyDatabase", db: "admin"}]})
+- db.shutDownServer()
+- 
+
+- https://www.mongodb.com/docs/manual/tutorial/install-mongodb-on-red-hat/#std-label-install-mdb-community-redhat-centos
+- Further roadblocks encountered configuring mongodb for TLS connections, combining this with all the other issues and RHEL-based guidance is scarce - re-init’ed project with an Ubuntu host
+- https://github.com/gravitational/teleport/discussions/35168
+
+Removed key pair setup for mongoldb (still needed with standalone deployment???):
+
+resource "mdb_api_key" "mdb-key" {
+	algorithm = "RSA"
+	rsa_bits = 4096
+}
+
+resource "mongodb_key_pair" "mdb-kp" {
+	public_key = mdb_api_key.mdb-key.public_key_openssh
+	private_key = mdb_api_key.mdb-key.private_key_pem
+}
+
+
+Activate cli:
+- gcloud config set account mongodb-backup@wiz-exercise.iam.gserviceaccount.com
+- gcloud init
+- gcloud auth activate-service-account mongodb-backup@wiz-exercise.iam.gserviceaccount.com --key-file cli.json
+- gcloud storage cp /opt/mongodump/dr_backup/* gs://mongodb_dr
+
